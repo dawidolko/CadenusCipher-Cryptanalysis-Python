@@ -4,8 +4,8 @@ Projekt: Atak na szyfr Cadenus
 Autor:   Dawid Olko
 Temat:   16) Szyfr Cadenus - atak metoda heurystyczna (hill-climbing
          z restartami / shotgun) z fitness opartym na quadgramach.
-Jezyki:  angielski (alfabet 25-literowy), niemiecki (mapowany do 25
-         liter - umlauty redukowane: ae->a, oe->o, ue->u, ss->ss, w->v)
+Jezyki:  angielski (alfabet 25-literowy), niemiecki (alfabet 30-literowy
+         z Ä Ö Ü ß, bez redukcji do 25 liter)
 
 Stosowane metody:
 - Shotgun hill-climbing (random-restart hill-climbing)
@@ -13,8 +13,8 @@ Stosowane metody:
   (z wygladzeniem dla niewidzianych quadgramow)
 - Atak NIE pracuje na "kluczu-slowie", ale rozdziela go na 2 niezalezne
   komponenty (rownowazne do klucza):
-     * permutacja kolumn `order` (lista dlugosci N)
-     * wektor przesuniec wierszy `shifts` (N wartosci 0..24)
+    * permutacja kolumn `order` (lista dlugosci N)
+    * wektor przesuniec wierszy `shifts` (N wartosci 0..|alfabet|-1)
   To pozwala na bardzo male ruchy w przestrzeni rozwiazan:
      * "shift +/-1 jednej kolumny" - to NAJMNIEJSZA mozliwa zmiana
        (jeden wiersz w jednej kolumnie zmienia pozycje), bardzo mala
@@ -26,12 +26,16 @@ Stosowane metody:
 
 Wlasne udoskonalenia:
 - Automatyczne odgadywanie dlugosci klucza: dlugosc kryptotekstu po
-  zaszyfrowaniu jest wielokrotnoscia 25*N. Dla typowych dlugosci
+    zaszyfrowaniu jest wielokrotnoscia |alfabet|*N. Dla typowych dlugosci
   300-1500 zostaje 2-4 kandydatow. Probujemy je zaczynajac od dluzszych
   (wykladowca oczekuje N>=8).
 - Wczesny stop: gdy fitness przekroczy prog "czytelnego tekstu"
   (~ -3.05 * len(plain)), konczymy biezacy hill-climb.
 - Po przekroczeniu progu - od razu zwracamy wynik (oszczednosc czasu).
+
+Zmiany po uwagach prowadzacego:
+- Klucz nie jest czyszczony ani modyfikowany w funkcjach szyfru.
+- Jezyk niemiecki uzywa pelnego alfabetu 30-literowego (A-Z + Ä Ö Ü ß).
 
 Z jakimi kluczami daje rade (pojedynczy proces, MacBook M-class):
 - angielski: klucze N=6..10 dla tekstu 400+ znakow w >90% przypadkow
@@ -70,9 +74,9 @@ import sys
 import time
 
 from cadenus_cipher import (
-    ALPHABET,
-    ALPHABET_SIZE,
     decrypt_components,
+    get_alphabet,
+    get_alphabet_size,
 )
 
 
@@ -83,7 +87,7 @@ class Quadgrams:
     def __init__(self, path):
         counts = {}
         total = 0
-        with open(path, "r", encoding="ascii") as f:
+        with open(path, "r", encoding="utf-8") as f:
             for line in f:
                 parts = line.split()
                 if len(parts) != 2:
@@ -106,15 +110,15 @@ class Quadgrams:
 
 # ---------- Atak ----------
 
-def random_state(n):
-    """Losowy stan: order to losowa permutacja [0..n), shifts to losowe 0..24."""
+def random_state(n, alphabet_size):
+    """Losowy stan: order to losowa permutacja [0..n), shifts to losowe 0..|alfabet|-1."""
     order = list(range(n))
     random.shuffle(order)
-    shifts = [random.randrange(ALPHABET_SIZE) for _ in range(n)]
+    shifts = [random.randrange(alphabet_size) for _ in range(n)]
     return order, shifts
 
 
-def small_change(order, shifts):
+def small_change(order, shifts, alphabet_size):
     """
     Mala zmiana stanu. Modyfikuje listy w miejscu, zwraca info do undo.
     Rozklad ruchow:
@@ -128,7 +132,7 @@ def small_change(order, shifts):
         c = random.randrange(n)
         delta = 1 if random.random() < 0.5 else -1
         old = shifts[c]
-        shifts[c] = (old + delta) % ALPHABET_SIZE
+        shifts[c] = (old + delta) % alphabet_size
         return ('shift', c, old)
     elif r < 0.95 and n >= 2:
         i, j = random.sample(range(n), 2)
@@ -137,7 +141,7 @@ def small_change(order, shifts):
     else:
         c = random.randrange(n)
         old = shifts[c]
-        new = random.randrange(ALPHABET_SIZE)
+        new = random.randrange(alphabet_size)
         shifts[c] = new
         return ('shift', c, old)
 
@@ -151,7 +155,7 @@ def undo(order, shifts, change):
         order[i], order[j] = order[j], order[i]
 
 
-def state_to_key(order, shifts):
+def state_to_key(order, shifts, alphabet):
     """
     Probuje zrekonstruowac klucz-slowo z (order, shifts).
     Klucz-slowo: na pozycji i klucza stoi litera o pozycji `shifts[i]`.
@@ -161,8 +165,8 @@ def state_to_key(order, shifts):
     Jezeli nie da sie - zwracamy reprezentacje 'order|shifts'.
     """
     n = len(order)
-    # Klucz-slowo: litera na poz. i to ALPHABET[shifts[i]].
-    key_word = "".join(ALPHABET[s] for s in shifts)
+    # Klucz-slowo: litera na poz. i to alphabet[shifts[i]].
+    key_word = "".join(alphabet[s] for s in shifts)
     # Sprawdzamy czy `order` to faktycznie permutacja sortujaca litery key_word
     expected = sorted(range(n), key=lambda i: (key_word[i], i))
     if expected == order:
@@ -170,27 +174,27 @@ def state_to_key(order, shifts):
     return f"{key_word}|order={order}"
 
 
-def optimize_shifts_greedy(ciphertext, order, shifts, qg, max_passes=2):
+def optimize_shifts_greedy(ciphertext, order, shifts, qg, alphabet_size, max_passes=2):
     """
     Coordinate-descent po wektorze shiftow: dla kazdej kolumny probuje
-    wszystkie 25 mozliwych shiftow i wybiera najlepszy. Powtarza az do
+    wszystkie |alfabet| mozliwych shiftow i wybiera najlepszy. Powtarza az do
     braku zmian (lub `max_passes`). Bardzo skuteczne dla Cadenusa, bo
     przy ustalonym poprawnym `order` shifty sa wzajemnie niezalezne.
     Modyfikuje `shifts` w miejscu, zwraca koncowy fitness.
     """
     n = len(order)
-    best_score = qg.score(decrypt_components(ciphertext, order, shifts))
+    best_score = qg.score(decrypt_components(ciphertext, order, shifts, alphabet_size))
     for _ in range(max_passes):
         improved = False
         for c in range(n):
             old = shifts[c]
             best_local = best_score
             best_s = old
-            for s in range(ALPHABET_SIZE):
+            for s in range(alphabet_size):
                 if s == old:
                     continue
                 shifts[c] = s
-                sc = qg.score(decrypt_components(ciphertext, order, shifts))
+                sc = qg.score(decrypt_components(ciphertext, order, shifts, alphabet_size))
                 if sc > best_local:
                     best_local = sc
                     best_s = s
@@ -203,7 +207,7 @@ def optimize_shifts_greedy(ciphertext, order, shifts, qg, max_passes=2):
     return best_score
 
 
-def evaluate_order(ciphertext, order, qg):
+def evaluate_order(ciphertext, order, qg, alphabet_size):
     """
     Ewaluuje permutacje `order`: znajduje optymalny wektor shiftow przez
     coordinate descent zaczynajacy od zer i zwraca (fitness, shifts).
@@ -211,11 +215,11 @@ def evaluate_order(ciphertext, order, qg):
     po lokalnym dostrojeniu shiftow.
     """
     shifts = [0] * len(order)
-    score = optimize_shifts_greedy(ciphertext, order, shifts, qg, max_passes=2)
+    score = optimize_shifts_greedy(ciphertext, order, shifts, qg, alphabet_size, max_passes=2)
     return score, shifts
 
 
-def hill_climb(ciphertext, key_len, qg, max_no_improve=200, target=None):
+def hill_climb(ciphertext, key_len, qg, alphabet_size, max_no_improve=200, target=None):
     """
     Hill-climb dwufazowy:
       Faza 1: szukanie permutacji `order` w przestrzeni N!. Mala zmiana =
@@ -229,7 +233,7 @@ def hill_climb(ciphertext, key_len, qg, max_no_improve=200, target=None):
     # Faza 1: shotgun po `order`
     order = list(range(n))
     random.shuffle(order)
-    best_score, best_shifts = evaluate_order(ciphertext, order, qg)
+    best_score, best_shifts = evaluate_order(ciphertext, order, qg, alphabet_size)
     best_order = list(order)
 
     no_improve = 0
@@ -237,7 +241,7 @@ def hill_climb(ciphertext, key_len, qg, max_no_improve=200, target=None):
         # mala zmiana: swap dwoch pozycji w `order`
         i, j = random.sample(range(n), 2)
         order[i], order[j] = order[j], order[i]
-        score, shifts = evaluate_order(ciphertext, order, qg)
+        score, shifts = evaluate_order(ciphertext, order, qg, alphabet_size)
         if score > best_score:
             best_score = score
             best_order = list(order)
@@ -252,29 +256,29 @@ def hill_climb(ciphertext, key_len, qg, max_no_improve=200, target=None):
     # Faza 2: dokladne dostrojenie shiftow
     order = list(best_order)
     shifts = list(best_shifts)
-    optimize_shifts_greedy(ciphertext, order, shifts, qg, max_passes=4)
-    plain = decrypt_components(ciphertext, order, shifts)
+    optimize_shifts_greedy(ciphertext, order, shifts, qg, alphabet_size, max_passes=4)
+    plain = decrypt_components(ciphertext, order, shifts, alphabet_size)
     final_score = qg.score(plain)
 
     if final_score > best_score:
         best_score = final_score
         best_shifts = shifts
 
-    plain = decrypt_components(ciphertext, best_order, best_shifts)
+    plain = decrypt_components(ciphertext, best_order, best_shifts, alphabet_size)
     return best_score, (best_order, best_shifts), plain
 
 
-def candidate_key_lengths(cipher_len, min_n=4, max_n=12):
-    """Dlugosc krytotekstu musi byc wielokrotnoscia 25*N."""
-    cands = [n for n in range(min_n, max_n + 1) if cipher_len % (ALPHABET_SIZE * n) == 0]
+def candidate_key_lengths(cipher_len, alphabet_size, min_n=4, max_n=12):
+    """Dlugosc krytotekstu musi byc wielokrotnoscia |alfabet|*N."""
+    cands = [n for n in range(min_n, max_n + 1) if cipher_len % (alphabet_size * n) == 0]
     cands.sort(reverse=True)  # od dluzszych
     return cands
 
 
 def attack(ciphertext, qg, key_len=None, restarts=20, time_budget=None,
-           verbose=True):
+           verbose=True, alphabet_size=25, alphabet=None):
     if key_len is None:
-        candidates = candidate_key_lengths(len(ciphertext))
+        candidates = candidate_key_lengths(len(ciphertext), alphabet_size)
         if not candidates:
             raise ValueError("Brak sensownej dlugosci klucza dla tej dlugosci kryptotekstu")
     else:
@@ -294,9 +298,9 @@ def attack(ciphertext, qg, key_len=None, restarts=20, time_budget=None,
                 if verbose:
                     print("[*] Przekroczono budzet czasowy.")
                 return best
-            score, state, plain = hill_climb(ciphertext, n, qg, target=target)
+            score, state, plain = hill_climb(ciphertext, n, qg, alphabet_size, target=target)
             if verbose:
-                key_str = state_to_key(state[0], state[1])
+                key_str = state_to_key(state[0], state[1], alphabet or get_alphabet("en"))
                 print(f"  restart {r + 1:>3}/{restarts}  N={n}  score={score:.1f}  key={key_str}")
             if score > best[0]:
                 best = (score, state, plain, n)
@@ -339,8 +343,20 @@ def main():
     if not os.path.exists(cipher_path):
         print(f"Brak pliku kryptotekstu: {cipher_path}"); sys.exit(1)
 
+    alphabet = get_alphabet(lang)
+    alphabet_size = get_alphabet_size(lang)
+
     with open(cipher_path, "r", encoding="utf-8") as f:
-        ciphertext = "".join(ch for ch in f.read().upper() if 'A' <= ch <= 'Z')
+        raw = f.read()
+    cleaned = []
+    for ch in raw:
+        if ch == "ß":
+            ch_up = "ß"
+        else:
+            ch_up = ch.upper()
+        if ch_up in alphabet:
+            cleaned.append(ch_up)
+    ciphertext = "".join(cleaned)
 
     print(f"== Atak na szyfr Cadenus ==")
     print(f"Plik:        {cipher_path}")
@@ -350,16 +366,23 @@ def main():
     if key_len:
         print(f"Klucz N:     {key_len} (znany)")
     else:
-        print(f"Klucz N:     odgadywany, kandydaci: {candidate_key_lengths(len(ciphertext))}")
+        print(f"Klucz N:     odgadywany, kandydaci: {candidate_key_lengths(len(ciphertext), alphabet_size)}")
     print()
 
     qg = Quadgrams(qg_path)
 
     t0 = time.time()
-    score, state, plain, n = attack(ciphertext, qg, key_len=key_len, restarts=restarts)
+    score, state, plain, n = attack(
+        ciphertext,
+        qg,
+        key_len=key_len,
+        restarts=restarts,
+        alphabet_size=alphabet_size,
+        alphabet=alphabet,
+    )
     dt = time.time() - t0
 
-    key_str = state_to_key(state[0], state[1])
+    key_str = state_to_key(state[0], state[1], alphabet)
     print()
     print("================ WYNIK ================")
     print(f"Czas:        {dt:.1f} s")
@@ -369,7 +392,7 @@ def main():
     print("=======================================")
 
     if out_path:
-        with open(out_path, "w", encoding="ascii") as f:
+        with open(out_path, "w", encoding="utf-8") as f:
             f.write(f"key={key_str}\nkey_len={n}\nfitness={score:.2f}\n\n")
             f.write(plain)
         print(f"Zapisano do {out_path}")

@@ -8,18 +8,19 @@ calkowicie odseparowany od kryptoanalizy (atak importuje stad jedynie
 funkcje deszyfrowania i stale).
 
 Opis dzialania szyfru (wariant na podstawie mattomatti.com):
-- Alfabet ma 25 liter: litera 'W' jest traktowana jako 'V' (usuwana z tekstu
-  jawnego/zamieniana na V).
+- Dla jezyka angielskiego alfabet ma 25 liter: litera 'W' jest traktowana jako
+    'V' (usuwana z tekstu jawnego/zamieniana na V).
+- Dla jezyka niemieckiego alfabet jest rozszerzony do 30 liter (A-Z + Ä Ö Ü ß)
+    i NIE jest redukowany do 25 liter.
 - Klucz to slowo dlugosci N (litery roznych pozycji w alfabecie nie sa
   wymagane unikalne - dla uproszczenia generujemy klucze o unikalnych
   literach, co jest tez przyjete w klasycznym opisie).
-- Tekst jawny dzielimy na bloki o dlugosci N*25. Kazdy blok zapisujemy
-  do tablicy 25 wierszy x N kolumn, kolumna po kolumnie (czyli pierwsze N
-  liter tekstu trafia do pierwszego wiersza, kolejne N do drugiego itd.).
+- Tekst jawny dzielimy na bloki o dlugosci N*|alfabet|. Kazdy blok zapisujemy
+    do tablicy |alfabet| wierszy x N kolumn, kolumna po kolumnie (czyli pierwsze N
+    liter tekstu trafia do pierwszego wiersza, kolejne N do drugiego itd.).
 - Krok 1 (przesuniecie wierszy): dla kazdej kolumny i (i = 0..N-1) bierzemy
-  i-ta litere klucza i obliczamy jej pozycje w 25-literowym alfabecie
-  (A=0, B=1, ..., V=21, X=22, Y=23, Z=24). Kolumne przesuwamy cyklicznie w
-  gore o tyle pozycji.
+    i-ta litere klucza i obliczamy jej pozycje w odpowiednim alfabecie.
+    Kolumne przesuwamy cyklicznie w gore o tyle pozycji.
 - Krok 2 (permutacja kolumn): kolumny ustawiamy zgodnie z kolejnoscia
   alfabetyczna liter klucza (jak w szyfrach kolumnowych - kolumna oznaczona
   litera bliska 'A' idzie pierwsza).
@@ -33,38 +34,59 @@ import random
 
 # --- Stale ---
 
-# Alfabet 25-literowy: W jest tozsame z V (klasyczny opis Cadenus).
-ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVXYZ"
-ALPHABET_SIZE = 25  # zawsze 25
-LETTER_TO_INDEX = {ch: i for i, ch in enumerate(ALPHABET)}
+# Alfabety jezykowe.
+ALPHABET_EN = "ABCDEFGHIJKLMNOPQRSTUVXYZ"  # 25 liter, W->V
+ALPHABET_DE = "ABCDEFGHIJKLMNOPQRSTUVWXYZÄÖÜß"  # 30 liter
+
+ALPHABETS = {
+    "en": ALPHABET_EN,
+    "de": ALPHABET_DE,
+}
+
+LETTER_TO_INDEX = {k: {ch: i for i, ch in enumerate(a)} for k, a in ALPHABETS.items()}
 
 
-def clean_text(text):
+def get_alphabet(lang="en"):
+    return ALPHABETS.get(lang, ALPHABET_EN)
+
+
+def get_alphabet_size(lang="en"):
+    return len(get_alphabet(lang))
+
+
+def clean_text(text, lang="en"):
     """
     Przygotowuje tekst do szyfrowania: usuwa wszystko poza literami,
-    zamienia na duze litery, zamienia 'W' na 'V'.
+    zamienia na duze litery. Dla angielskiego dodatkowo zamienia 'W' na 'V'.
     Funkcja jest calkowicie niezalezna od szyfrowania/deszyfrowania.
     """
     out = []
-    for ch in text.upper():
-        if ch == 'W':
-            out.append('V')
-        elif 'A' <= ch <= 'Z':
-            out.append(ch)
-        # litery z diakrytykami obslugujemy minimalnie - mapujemy popularne
-        elif ch in "ÄÖÜ":
-            out.append({'Ä': 'A', 'Ö': 'O', 'Ü': 'U'}[ch])
-        elif ch == 'ß':
-            out.append('S')
-            out.append('S')
+    if lang == "de":
+        alphabet = ALPHABET_DE
+        for ch in text:
+            if ch in "äöü":
+                ch = ch.upper()
+            elif ch == "ß":
+                ch = "ß"
+            else:
+                ch = ch.upper()
+            if ch in alphabet:
+                out.append(ch)
+    else:
+        for ch in text.upper():
+            if ch == 'W':
+                out.append('V')
+            elif 'A' <= ch <= 'Z':
+                out.append(ch)
     return "".join(out)
 
 
-def generate_random_key(length):
+def generate_random_key(length, lang="en"):
     """Losuje klucz dlugosci `length` z liter alfabetu (bez powtorzen)."""
-    if length > ALPHABET_SIZE:
-        raise ValueError("Klucz nie moze byc dluzszy niz alfabet (25).")
-    return "".join(random.sample(ALPHABET, length))
+    alphabet = get_alphabet(lang)
+    if length > len(alphabet):
+        raise ValueError("Klucz nie moze byc dluzszy niz alfabet.")
+    return "".join(random.sample(alphabet, length))
 
 
 def _key_order(key):
@@ -78,43 +100,47 @@ def _key_order(key):
     return indexed
 
 
-def _shifts(key):
+def _shifts(key, lang="en"):
     """Lista przesuniec wierszy dla kolejnych kolumn = pozycje liter klucza."""
-    return [LETTER_TO_INDEX[ch] for ch in key]
+    letter_to_index = LETTER_TO_INDEX.get(lang, LETTER_TO_INDEX["en"])
+    return [letter_to_index[ch] for ch in key]
 
 
-def encrypt(plaintext, key):
+def encrypt(plaintext, key, lang="en"):
     """
     Szyfruje przygotowany juz tekst (same litery alfabetu).
     Tekst musi byc oczyszczony - funkcja niczego nie usuwa.
-    Jezeli dlugosc nie jest wielokrotnoscia N*25, ostatni blok jest dopelniony
+    Jezeli dlugosc nie jest wielokrotnoscia N*|alfabet|, ostatni blok jest dopelniony
     literami 'X' (wartosc nie ma duzego znaczenia dla ataku, dopelnienie i
     tak jest minimalne dla dluzszych tekstow).
     """
     n = len(key)
-    block_size = n * ALPHABET_SIZE
+    alphabet_size = get_alphabet_size(lang)
+    block_size = n * alphabet_size
     pad = (-len(plaintext)) % block_size
-    text = plaintext + 'X' * pad
+    alphabet = get_alphabet(lang)
+    pad_char = 'X' if 'X' in alphabet else alphabet[-1]
+    text = plaintext + pad_char * pad
 
-    shifts = _shifts(key)
+    shifts = _shifts(key, lang=lang)
     order = _key_order(key)
 
     out = []
     for b in range(0, len(text), block_size):
         block = text[b:b + block_size]
         # zapis do siatki: 25 wierszy, n kolumn, czytane wierszami
-        grid = [list(block[r * n:(r + 1) * n]) for r in range(ALPHABET_SIZE)]
+        grid = [list(block[r * n:(r + 1) * n]) for r in range(alphabet_size)]
 
         # 1) przesuniecie wierszy w kazdej kolumnie - cyklicznie do gory
         #    o `shifts[col]` pozycji
-        new_grid = [[None] * n for _ in range(ALPHABET_SIZE)]
+        new_grid = [[None] * n for _ in range(alphabet_size)]
         for col in range(n):
             s = shifts[col]
-            for row in range(ALPHABET_SIZE):
-                new_grid[row][col] = grid[(row + s) % ALPHABET_SIZE][col]
+            for row in range(alphabet_size):
+                new_grid[row][col] = grid[(row + s) % alphabet_size][col]
 
         # 2) permutacja kolumn: kolumna o najmniejszej literze klucza idzie pierwsza
-        permuted = [[new_grid[r][order[c]] for c in range(n)] for r in range(ALPHABET_SIZE)]
+        permuted = [[new_grid[r][order[c]] for c in range(n)] for r in range(alphabet_size)]
 
         # czytanie wierszami
         for row in permuted:
@@ -123,20 +149,20 @@ def encrypt(plaintext, key):
     return "".join(out)
 
 
-def decrypt_components(ciphertext, order, shifts):
+def decrypt_components(ciphertext, order, shifts, alphabet_size):
     """
     Glowna funkcja deszyfrowania - operuje na (order, shifts), czyli
     pelnej matematycznej reprezentacji klucza Cadenus:
         order  - permutacja kolumn (lista pozycji 0..N-1)
-        shifts - przesuniecia wierszy (lista wartosci 0..24)
+        shifts - przesuniecia wierszy (lista wartosci 0..|alfabet|-1)
     Klucz-slowo jest tylko skrotem zapisu pary (order, shifts), gdzie
     order = sortowanie alfabetyczne liter klucza, shifts = pozycje liter
     klucza w alfabecie.
 
-    Tekst musi miec dlugosc bedaca wielokrotnoscia N*25.
+    Tekst musi miec dlugosc bedaca wielokrotnoscia N*|alfabet|.
     """
     n = len(order)
-    block_size = n * ALPHABET_SIZE
+    block_size = n * alphabet_size
     if len(ciphertext) % block_size != 0:
         ciphertext = ciphertext[:len(ciphertext) - (len(ciphertext) % block_size)]
 
@@ -149,21 +175,26 @@ def decrypt_components(ciphertext, order, shifts):
         block = ciphertext[b:b + block_size]
         # Bezposrednia inwersja:
         #   szyfrowanie: out[r*n + c] = block_after_perm[r][c]
-        #                            = grid[(r + shifts[order[c]]) % 25][order[c]]
+        #                            = grid[(r + shifts[order[c]]) % |alfabet|][order[c]]
         # Deszyfrowanie odwraca to:
-        #   plain[(r + shifts[c]) % 25 * n + c] = block[r*n + inv_order[c]]
-        for r in range(ALPHABET_SIZE):
+        #   plain[(r + shifts[c]) % |alfabet| * n + c] = block[r*n + inv_order[c]]
+        for r in range(alphabet_size):
             base = r * n
             for c in range(n):
-                pr = (r + shifts[c]) % ALPHABET_SIZE
+                pr = (r + shifts[c]) % alphabet_size
                 out[b + pr * n + c] = block[base + inv_order[c]]
 
     return "".join(out)
 
 
-def decrypt(ciphertext, key):
+def decrypt(ciphertext, key, lang="en"):
     """Deszyfruje, przyjmujac klucz w postaci slowa (litery alfabetu)."""
-    return decrypt_components(ciphertext, _key_order(key), _shifts(key))
+    return decrypt_components(
+        ciphertext,
+        _key_order(key),
+        _shifts(key, lang=lang),
+        get_alphabet_size(lang),
+    )
 
 
 # --- Maly self-test gdy uruchamiane bezposrednio ---
@@ -174,10 +205,10 @@ if __name__ == "__main__":
         "it was the age of wisdom, it was the age of foolishness."
     )
     # rozszerzamy tekst zeby byl wystarczajaco dlugi do przykladu z kluczem 8
-    sample = (sample * 6)[:8 * 25 * 2]
-    k = generate_random_key(8)
-    c = encrypt(sample, k)
-    d = decrypt(c, k)
+    sample = (sample * 6)[:8 * get_alphabet_size("en") * 2]
+    k = generate_random_key(8, lang="en")
+    c = encrypt(sample, k, lang="en")
+    d = decrypt(c, k, lang="en")
     assert d.startswith(sample[:200]), "Deszyfrowanie nie odwraca szyfrowania!"
     print("Klucz:", k)
     print("Tekst jawny (200):", sample[:200])

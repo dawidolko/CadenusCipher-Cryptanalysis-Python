@@ -24,20 +24,20 @@ skomplikowany, ale wystarczająco, żeby „na oko” nie dało się tego odczyt
 
 Wyobraź sobie projekt jak warsztat. Każde narzędzie ma jedno zadanie:
 
-| Plik | Co robi (po ludzku) |
-|------|--------------------|
-| **`cadenus_cipher.py`** | „Maszyna do szyfrowania i odszyfrowywania”. Jak kalkulator: dajesz tekst + klucz, dostajesz zaszyfrowany tekst. Albo odwrotnie. |
-| **`cadenus_attack_Olko.py`** | „Detektyw”. Dostaje sam zaszyfrowany tekst i próbuje **zgadnąć** klucz oraz odczytać oryginał. |
-| **`make_sample.py`** | „Generator zagadek”. Bierze fragment książki, losuje klucz i tworzy zaszyfrowany tekst do testowania detektywa. |
-| **`build_ngrams.py`** | „Słownik statystyczny”. Przegląda książki i liczy, jakie 4-literowe sekwencje (np. `THER`, `IONS`) występują często w angielskim/niemieckim. Potrzebne, żeby detektyw wiedział, jak wygląda „prawdziwy” tekst. |
-| **`test_attack.py`** | „Egzaminator”. Uruchamia detektywa wiele razy z różnymi kluczami i mierzy, jak często mu się udaje. |
-| `english_quadgrams.txt` | Plik ze statystykami angielskiego (gotowy, nie trzeba budować od nowa). |
-| `german_quadgrams.txt` | To samo dla niemieckiego. |
-| `ciphertext_english.txt` | Przykładowy zaszyfrowany tekst angielski — gotowa zagadka do złamania. |
-| `ciphertext_german.txt` | To samo, niemiecki. |
-| `solutions.txt` | „Klucz odpowiedzi” — tu jest prawdziwy klucz i początek oryginalnego tekstu. **Detektyw tego nie czyta.** Ty czytasz, żeby sprawdzić, czy się udało. |
-| `corpora/` | Książki do nauki statystyk (Pride and Prejudice, Moby Dick, Buddenbrooks). |
-| `start.sh`, `start.bat` | Skróty uruchamiające detektywa (Linux/Mac vs Windows). |
+| Plik                         | Co robi (po ludzku)                                                                                                                                                                                            |
+| ---------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **`cadenus_cipher.py`**      | „Maszyna do szyfrowania i odszyfrowywania”. Jak kalkulator: dajesz tekst + klucz, dostajesz zaszyfrowany tekst. Albo odwrotnie.                                                                                |
+| **`cadenus_attack_Olko.py`** | „Detektyw”. Dostaje sam zaszyfrowany tekst i próbuje **zgadnąć** klucz oraz odczytać oryginał.                                                                                                                 |
+| **`make_sample.py`**         | „Generator zagadek”. Bierze fragment książki, losuje klucz i tworzy zaszyfrowany tekst do testowania detektywa.                                                                                                |
+| **`build_ngrams.py`**        | „Słownik statystyczny”. Przegląda książki i liczy, jakie 4-literowe sekwencje (np. `THER`, `IONS`) występują często w angielskim/niemieckim. Potrzebne, żeby detektyw wiedział, jak wygląda „prawdziwy” tekst. |
+| **`test_attack.py`**         | „Egzaminator”. Uruchamia detektywa wiele razy z różnymi kluczami i mierzy, jak często mu się udaje.                                                                                                            |
+| `english_quadgrams.txt`      | Plik ze statystykami angielskiego (gotowy, nie trzeba budować od nowa).                                                                                                                                        |
+| `german_quadgrams.txt`       | To samo dla niemieckiego.                                                                                                                                                                                      |
+| `ciphertext_english.txt`     | Przykładowy zaszyfrowany tekst angielski — gotowa zagadka do złamania.                                                                                                                                         |
+| `ciphertext_german.txt`      | To samo, niemiecki.                                                                                                                                                                                            |
+| `solutions.txt`              | „Klucz odpowiedzi” — tu jest prawdziwy klucz i początek oryginalnego tekstu. **Detektyw tego nie czyta.** Ty czytasz, żeby sprawdzić, czy się udało.                                                           |
+| `corpora/`                   | Książki do nauki statystyk (Pride and Prejudice, Moby Dick, Buddenbrooks).                                                                                                                                     |
+| `start.sh`, `start.bat`      | Skróty uruchamiające detektywa (Linux/Mac vs Windows).                                                                                                                                                         |
 
 ---
 
@@ -46,7 +46,7 @@ Wyobraź sobie projekt jak warsztat. Każde narzędzie ma jedno zadanie:
 Wyobraź sobie kartkę papieru w kratkę:
 
 1. Wybieramy **klucz** — słowo, np. `SECRET` (6 liter).
-2. Bierzemy oryginalny tekst i wpisujemy go do tabelki **25 wierszy × 6 kolumn**
+2. Bierzemy oryginalny tekst i wpisujemy go do tabelki **|alfabet| wierszy × 6 kolumn**
    (bo klucz ma 6 liter), pisząc wiersz po wierszu.
 3. Każdą kolumnę **przesuwamy w górę** o tyle pól, jaką pozycję w alfabecie
    ma odpowiadająca jej litera klucza. Np. kolumna pod literą `S` przesuwa
@@ -57,8 +57,10 @@ Wyobraź sobie kartkę papieru w kratkę:
 
 Deszyfrowanie to dokładnie te same kroki, ale w odwrotną stronę.
 
-**Kluczowy fakt**: alfabet ma tylko 25 liter, bo `W` traktujemy jako `V`
-(taka jest definicja Cadenusa).
+**Kluczowy fakt**: rozmiar alfabetu zalezy od jezyka.
+
+- Angielski ma 25 liter, bo `W` traktujemy jako `V` (taka jest definicja Cadenusa).
+- Niemiecki ma 30 liter: `A-Z` oraz `Ä Ö Ü ß` (bez redukcji do 25 liter).
 
 ---
 
@@ -108,6 +110,7 @@ deszyfruje go i wypisze wynik. Jeśli na końcu zobaczysz `OK`, to znaczy
 że maszyna szyfrująca działa.
 
 **Czego oczekujesz:**
+
 ```
 Klucz: YHPKCRQZ
 Tekst jawny (200): ITVASTHEBESTOFTIMES...
@@ -129,18 +132,21 @@ python3 cadenus_attack_Olko.py ciphertext_english.txt -l en -k 8 -r 6
 ```
 
 Co znaczą flagi:
+
 - `ciphertext_english.txt` — plik z zagadką do złamania
 - `-l en` — język angielski (program używa angielskich statystyk)
 - `-k 8` — z góry mówimy detektywowi że klucz ma 8 liter (przyspiesza go)
 - `-r 6` — niech spróbuje 6 razy z różnymi losowymi startami
 
 **Co się stanie:** Przez około **1 minutę** zobaczysz:
+
 - linijki typu `restart 1/6 N=8 score=-3315.2 key=...` — to detektyw
   raportuje wyniki kolejnych prób (im wyższy score, tym lepiej, czyli
   `-3315` jest lepsze niż `-4500`)
 - na końcu sekcję `WYNIK` z odszyfrowanym tekstem
 
 **Czego oczekujesz:** ostatecznie zobaczysz fragment **Pride and Prejudice**:
+
 ```
 Tekst (300): ANDDESPITETHEABILITYVHICHMISSAUSTENHASSHOVNINVORKING
               OUTTHESTORYIFORONESHOULDPUTPRIDEANDPREJUDICE...
@@ -160,6 +166,7 @@ python3 cadenus_attack_Olko.py ciphertext_german.txt -l de -k 8 -r 6
 ```
 
 To samo co wyżej, ale po niemiecku. Po około minucie powinno wyjść:
+
 ```
 Tekst (300): ...NERVOSENBEVEGUNGIMSESSELVORELLGEBLUMTERSEIDE...
 ```
@@ -177,7 +184,7 @@ python3 cadenus_attack_Olko.py ciphertext_english.txt -l en -r 6
 ```
 
 **Co się stanie:** Program sam wykombinuje, jakie długości klucza są
-możliwe (na podstawie długości tekstu — musi być wielokrotnością `25*N`)
+możliwe (na podstawie długości tekstu — musi być wielokrotnością `|alfabet|*N`)
 i wypróbuje każdą z nich. Potrwa dłużej (kilka minut), bo musi przejść
 przez kilka kandydatów.
 
@@ -196,6 +203,7 @@ python3 make_sample.py
 losowy klucz.
 
 **Czego oczekujesz:**
+
 ```
 == ENG ==
 Klucz angielski (N=8): GLNXFDEV
@@ -228,11 +236,13 @@ Po zakończeniu w `wynik.txt` znajdziesz znaleziony klucz, fitness oraz
 Dokładnie to samo co wyżej, ale krócej:
 
 **Linux/Mac:**
+
 ```bash
 ./start.sh ciphertext_english.txt -l en -k 8 -r 6
 ```
 
 **Windows:**
+
 ```bat
 start.bat ciphertext_english.txt -l en -k 8 -r 6
 ```
@@ -254,6 +264,7 @@ dowolnym momencie — wyniki wcześniejszych konfiguracji już zobaczysz na
 ekranie.
 
 **Czego oczekujesz** (po każdej konfiguracji jedna linijka):
+
 ```
 N= 8  L= 400  restarty=10  sukces= 9/10 ( 90.0%)  sr.czas= 18.4s
 ```
@@ -306,13 +317,14 @@ Długość kryptotekstu w znakach (np. L=800).
        │    używa cadenus_cipher.py        ↓
        │                                   ↓
        └────→ [cadenus_attack_Olko.py] ←───┘
-                       ↑                    
-              używa cadenus_cipher.py       
+                       ↑
+              używa cadenus_cipher.py
               (tylko do deszyfrowania)
 ```
 
 **Zasada:** żeby uruchomić atak (główny program), potrzebujesz tylko
 trzech rzeczy:
+
 1. plik z kryptotekstem (`ciphertext_english.txt` jest gotowy),
 2. plik statystyk (`english_quadgrams.txt` jest gotowy),
 3. moduł szyfru (`cadenus_cipher.py` musi być w tym samym folderze).
@@ -332,8 +344,12 @@ Nie! Sprawdź **odszyfrowany tekst**. Jeśli jest taki sam jak prawdziwy
 oryginał — jest dobrze. Różne klucze mogą dawać ten sam wynik.
 
 **„Czemu w tekście są same duże litery i `V` zamiast `W`?”**
-Bo szyfr Cadenus używa alfabetu 25-literowego — `W` jest mapowane na `V`.
-To celowe.
+W angielskim Cadenus używa alfabetu 25-literowego — `W` jest mapowane na `V`.
+W niemieckim alfabet ma 30 liter i nie ma redukcji do 25.
+
+**„Czy klucz jest czyszczony albo modyfikowany?”**
+Nie. Klucz jest używany dokładnie tak, jak go podasz (nie ma czyszczenia ani
+zamiany znaków w kluczu). To była jedna z uwag prowadzącego.
 
 **„Czemu nie ma spacji w tekście?”**
 Bo zadanie wymaga, żeby spacje były usunięte przed szyfrowaniem.

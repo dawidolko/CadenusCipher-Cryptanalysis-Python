@@ -15,14 +15,14 @@ import os
 import random
 import time
 
-from cadenus_cipher import clean_text, encrypt, generate_random_key, ALPHABET_SIZE
+from cadenus_cipher import clean_text, encrypt, generate_random_key, get_alphabet_size
 from cadenus_attack_Olko import Quadgrams, attack
 
 
-def load_corpus(path, min_len):
+def load_corpus(path, min_len, lang="en"):
     with open(path, "r", encoding="utf-8", errors="replace") as f:
         text = f.read()
-    cleaned = clean_text(text)
+    cleaned = clean_text(text, lang=lang)
     return cleaned[5000:5000 + min_len + 5000]  # zapas
 
 
@@ -37,14 +37,15 @@ def is_success(plain_attack, plain_true, threshold=0.9):
     return matches / n >= threshold
 
 
-def run_tests(corpus_path, qg_path, lang_label, configs, trials=10):
+def run_tests(corpus_path, qg_path, lang_label, configs, trials=10, lang="en"):
     print(f"\n=== {lang_label}  (corpus: {corpus_path}) ===")
     qg = Quadgrams(qg_path)
-    base_text = load_corpus(corpus_path, 2000)
+    base_text = load_corpus(corpus_path, 2000, lang=lang)
+    alphabet_size = get_alphabet_size(lang)
 
     results = []
     for key_len, text_len, restarts in configs:
-        block_size = key_len * ALPHABET_SIZE
+        block_size = key_len * alphabet_size
         adj_len = (text_len // block_size) * block_size
         if adj_len == 0:
             adj_len = block_size
@@ -53,11 +54,12 @@ def run_tests(corpus_path, qg_path, lang_label, configs, trials=10):
         success = 0
         times = []
         for t in range(trials):
-            key = generate_random_key(key_len)
-            cipher = encrypt(plain, key)
+            key = generate_random_key(key_len, lang=lang)
+            cipher = encrypt(plain, key, lang=lang)
             t0 = time.time()
             score, state, p_attack, n = attack(
                 cipher, qg, key_len=key_len, restarts=restarts, verbose=False,
+                alphabet_size=alphabet_size,
             )
             dt = time.time() - t0
             times.append(dt)
@@ -93,10 +95,10 @@ if __name__ == "__main__":
 
     if os.path.exists("corpora/pride_and_prejudice.txt"):
         run_tests("corpora/pride_and_prejudice.txt", "english_quadgrams.txt",
-                  "ANGIELSKI", configs_en, trials=10)
+              "ANGIELSKI", configs_en, trials=10, lang="en")
     if os.path.exists("corpora/buddenbrooks.txt"):
         run_tests("corpora/buddenbrooks.txt", "german_quadgrams.txt",
-                  "NIEMIECKI", configs_de, trials=10)
+              "NIEMIECKI", configs_de, trials=10, lang="de")
 
 
 # ====================================================================

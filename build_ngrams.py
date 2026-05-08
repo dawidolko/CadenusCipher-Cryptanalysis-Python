@@ -7,7 +7,7 @@ przeliczy liczniki na log-prawdopodobienstwa.
 
 Wazne: tekst jest oczyszczany TA SAMA funkcja co dla szyfrowania
 (clean_text z cadenus_cipher) - dzieki temu statystyki sa zgodne z
-alfabetem 25-literowym, na ktorym dziala szyfr.
+alfabetem odpowiednim dla jezyka.
 """
 
 import os
@@ -17,7 +17,7 @@ from collections import Counter
 from cadenus_cipher import clean_text
 
 
-def build(corpus_paths, out_path, n=4):
+def build(corpus_paths, out_path, n=4, lang="en"):
     counter = Counter()
     total_chars = 0
     for p in corpus_paths:
@@ -26,7 +26,7 @@ def build(corpus_paths, out_path, n=4):
             continue
         with open(p, "r", encoding="utf-8", errors="replace") as f:
             text = f.read()
-        cleaned = clean_text(text)
+        cleaned = clean_text(text, lang=lang)
         total_chars += len(cleaned)
         for i in range(len(cleaned) - n + 1):
             counter[cleaned[i:i + n]] += 1
@@ -34,7 +34,7 @@ def build(corpus_paths, out_path, n=4):
 
     print(f"Lacznie: {total_chars} znakow, {len(counter)} unikalnych {n}-gramow")
 
-    with open(out_path, "w", encoding="ascii") as f:
+    with open(out_path, "w", encoding="utf-8") as f:
         for quad, c in counter.most_common():
             f.write(f"{quad} {c}\n")
     print(f"Zapisano: {out_path}")
@@ -46,6 +46,7 @@ if __name__ == "__main__":
         ["corpora/pride_and_prejudice.txt", "corpora/moby_dick.txt"],
         "english_quadgrams.txt",
         n=4,
+        lang="en",
     )
     print()
     print("== Niemiecki ==")
@@ -53,4 +54,5 @@ if __name__ == "__main__":
         ["corpora/buddenbrooks.txt"],
         "german_quadgrams.txt",
         n=4,
+        lang="de",
     )
