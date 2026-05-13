@@ -74,17 +74,16 @@ import sys
 import time
 
 from cadenus_cipher import (
-    decrypt_components,
-    get_alphabet,
-    get_alphabet_size,
+    ALPHABETS,
+    decrypt_indices,
 )
 
 
 # ---------- N-gramy / fitness ----------
 
 class Quadgrams:
-    """Wczytuje plik 'QUAD COUNT' i udostepnia funkcje score(text)."""
-    def __init__(self, path):
+    """Wczytuje plik 'QUAD COUNT' i udostepnia szybkie funkcje score()."""
+    def __init__(self, path, alphabet):
         counts = {}
         total = 0
         with open(path, "r", encoding="utf-8") as f:
@@ -95,17 +94,62 @@ class Quadgrams:
                 quad, c = parts[0], int(parts[1])
                 counts[quad] = c
                 total += c
-        self.log_probs = {q: math.log10(c / total) for q, c in counts.items()}
+
+        self.alphabet = alphabet
+        self.alpha_index = {ch: i for i, ch in enumerate(alphabet)}
+        self.base = len(alphabet)
+        self.base2 = self.base * self.base
+        self.base3 = self.base2 * self.base
+
         # log-prawdopodobienstwo dla nieznanego quadgramu (wygladzenie)
         self.floor = math.log10(0.01 / total)
+        table_size = self.base3 * self.base
+        table = [self.floor] * table_size
+        for quad, c in counts.items():
+            try:
+                i0 = self.alpha_index[quad[0]]
+                i1 = self.alpha_index[quad[1]]
+                i2 = self.alpha_index[quad[2]]
+                i3 = self.alpha_index[quad[3]]
+            except KeyError:
+                continue
+            idx = i0 * self.base3 + i1 * self.base2 + i2 * self.base + i3
+            table[idx] = math.log10(c / total)
+        self.table = table
+
+    def score_indices(self, indices):
+        if len(indices) < 4:
+            return 0.0
+        base = self.base
+        base2 = self.base2
+        base3 = self.base3
+        table = self.table
+        idx = indices[0] * base3 + indices[1] * base2 + indices[2] * base + indices[3]
+        s = table[idx]
+        for i in range(4, len(indices)):
+            idx = (idx % base3) * base + indices[i]
+            s += table[idx]
+        return s
 
     def score(self, text):
-        lp = self.log_probs
-        floor = self.floor
-        s = 0.0
-        for i in range(len(text) - 3):
-            s += lp.get(text[i:i + 4], floor)
-        return s
+        ai = self.alpha_index
+        indices = [ai[ch] for ch in text]
+        return self.score_indices(indices)
+
+
+def text_to_indices(text, alphabet_index):
+    return [alphabet_index[ch] for ch in text]
+
+
+def indices_to_text(indices, alphabet):
+    return "".join(alphabet[i] for i in indices)
+
+
+def make_inv_order(order):
+    inv_order = [0] * len(order)
+    for new_col, old_col in enumerate(order):
+        inv_order[old_col] = new_col
+    return inv_order
 
 
 # ---------- Atak ----------
@@ -174,7 +218,7 @@ def state_to_key(order, shifts, alphabet):
     return f"{key_word}|order={order}"
 
 
-def optimize_shifts_greedy(ciphertext, order, shifts, qg, alphabet_size, max_passes=2):
+def optimize_shifts_greedy(cipher_idx, inv_order, shifts, qg, alphabet_size, max_passes=2):
     """
     Coordinate-descent po wektorze shiftow: dla kazdej kolumny probuje
     wszystkie |alfabet| mozliwych shiftow i wybiera najlepszy. Powtarza az do
@@ -182,8 +226,10 @@ def optimize_shifts_greedy(ciphertext, order, shifts, qg, alphabet_size, max_pas
     przy ustalonym poprawnym `order` shifty sa wzajemnie niezalezne.
     Modyfikuje `shifts` w miejscu, zwraca koncowy fitness.
     """
-    n = len(order)
-    best_score = qg.score(decrypt_components(ciphertext, order, shifts, alphabet_size))
+    n = len(shifts)
+    decrypt_fast = decrypt_indices
+    score_fast = qg.score_indices
+    best_score = score_fast(decrypt_fast(cipher_idx, None, shifts, alphabet_size, inv_order=inv_order))
     for _ in range(max_passes):
         improved = False
         for c in range(n):
@@ -194,7 +240,7 @@ def optimize_shifts_greedy(ciphertext, order, shifts, qg, alphabet_size, max_pas
                 if s == old:
                     continue
                 shifts[c] = s
-                sc = qg.score(decrypt_components(ciphertext, order, shifts, alphabet_size))
+                sc = score_fast(decrypt_fast(cipher_idx, None, shifts, alphabet_size, inv_order=inv_order))
                 if sc > best_local:
                     best_local = sc
                     best_s = s
@@ -207,7 +253,7 @@ def optimize_shifts_greedy(ciphertext, order, shifts, qg, alphabet_size, max_pas
     return best_score
 
 
-def evaluate_order(ciphertext, order, qg, alphabet_size):
+def evaluate_order(cipher_idx, order, qg, alphabet_size):
     """
     Ewaluuje permutacje `order`: znajduje optymalny wektor shiftow przez
     coordinate descent zaczynajacy od zer i zwraca (fitness, shifts).
@@ -215,11 +261,12 @@ def evaluate_order(ciphertext, order, qg, alphabet_size):
     po lokalnym dostrojeniu shiftow.
     """
     shifts = [0] * len(order)
-    score = optimize_shifts_greedy(ciphertext, order, shifts, qg, alphabet_size, max_passes=2)
+    inv_order = make_inv_order(order)
+    score = optimize_shifts_greedy(cipher_idx, inv_order, shifts, qg, alphabet_size, max_passes=2)
     return score, shifts
 
 
-def hill_climb(ciphertext, key_len, qg, alphabet_size, max_no_improve=200, target=None):
+def hill_climb(cipher_idx, key_len, qg, alphabet_size, max_no_improve=200, target=None):
     """
     Hill-climb dwufazowy:
       Faza 1: szukanie permutacji `order` w przestrzeni N!. Mala zmiana =
@@ -233,7 +280,7 @@ def hill_climb(ciphertext, key_len, qg, alphabet_size, max_no_improve=200, targe
     # Faza 1: shotgun po `order`
     order = list(range(n))
     random.shuffle(order)
-    best_score, best_shifts = evaluate_order(ciphertext, order, qg, alphabet_size)
+    best_score, best_shifts = evaluate_order(cipher_idx, order, qg, alphabet_size)
     best_order = list(order)
 
     no_improve = 0
@@ -241,7 +288,7 @@ def hill_climb(ciphertext, key_len, qg, alphabet_size, max_no_improve=200, targe
         # mala zmiana: swap dwoch pozycji w `order`
         i, j = random.sample(range(n), 2)
         order[i], order[j] = order[j], order[i]
-        score, shifts = evaluate_order(ciphertext, order, qg, alphabet_size)
+        score, shifts = evaluate_order(cipher_idx, order, qg, alphabet_size)
         if score > best_score:
             best_score = score
             best_order = list(order)
@@ -256,16 +303,20 @@ def hill_climb(ciphertext, key_len, qg, alphabet_size, max_no_improve=200, targe
     # Faza 2: dokladne dostrojenie shiftow
     order = list(best_order)
     shifts = list(best_shifts)
-    optimize_shifts_greedy(ciphertext, order, shifts, qg, alphabet_size, max_passes=4)
-    plain = decrypt_components(ciphertext, order, shifts, alphabet_size)
-    final_score = qg.score(plain)
+    inv_order = make_inv_order(order)
+    optimize_shifts_greedy(cipher_idx, inv_order, shifts, qg, alphabet_size, max_passes=4)
+    plain_idx = decrypt_indices(cipher_idx, order, shifts, alphabet_size, inv_order=inv_order)
+    final_score = qg.score_indices(plain_idx)
 
     if final_score > best_score:
         best_score = final_score
         best_shifts = shifts
+        best_plain_idx = plain_idx
+    else:
+        inv_order = make_inv_order(best_order)
+        best_plain_idx = decrypt_indices(cipher_idx, best_order, best_shifts, alphabet_size, inv_order=inv_order)
 
-    plain = decrypt_components(ciphertext, best_order, best_shifts, alphabet_size)
-    return best_score, (best_order, best_shifts), plain
+    return best_score, (best_order, best_shifts), best_plain_idx
 
 
 def candidate_key_lengths(cipher_len, alphabet_size, min_n=4, max_n=12):
@@ -277,18 +328,31 @@ def candidate_key_lengths(cipher_len, alphabet_size, min_n=4, max_n=12):
 
 def attack(ciphertext, qg, key_len=None, restarts=20, time_budget=None,
            verbose=True, alphabet_size=25, alphabet=None):
+    if alphabet is None:
+        alphabet = ALPHABETS.get("en", "ABCDEFGHIJKLMNOPQRSTUVXYZ")
+    if alphabet_size != len(alphabet):
+        alphabet_size = len(alphabet)
     if key_len is None:
         candidates = candidate_key_lengths(len(ciphertext), alphabet_size)
         if not candidates:
             raise ValueError("Brak sensownej dlugosci klucza dla tej dlugosci kryptotekstu")
     else:
         candidates = [key_len]
+    alphabet_index = {ch: i for i, ch in enumerate(alphabet)}
+    cipher_idx = text_to_indices(ciphertext, alphabet_index)
 
     target_per_char = -3.05  # czytelny angielski quadgram log10
     target = target_per_char * (len(ciphertext) - 3)
 
-    best = (-1e18, None, None, None)  # score, state, plain, n
+    best = (-1e18, None, None, None)  # score, state, plain_idx, n
     start = time.time()
+
+    def finalize_best(best_state):
+        if best_state[2] is None:
+            plain_text = ""
+        else:
+            plain_text = indices_to_text(best_state[2], alphabet)
+        return best_state[0], best_state[1], plain_text, best_state[3]
 
     for n in candidates:
         if verbose:
@@ -297,18 +361,21 @@ def attack(ciphertext, qg, key_len=None, restarts=20, time_budget=None,
             if time_budget is not None and (time.time() - start) > time_budget:
                 if verbose:
                     print("[*] Przekroczono budzet czasowy.")
-                return best
-            score, state, plain = hill_climb(ciphertext, n, qg, alphabet_size, target=target)
+                return finalize_best(best)
+            score, state, plain_idx = hill_climb(cipher_idx, n, qg, alphabet_size, target=target)
             if verbose:
-                key_str = state_to_key(state[0], state[1], alphabet or get_alphabet("en"))
+                key_str = state_to_key(state[0], state[1], alphabet)
                 print(f"  restart {r + 1:>3}/{restarts}  N={n}  score={score:.1f}  key={key_str}")
             if score > best[0]:
-                best = (score, state, plain, n)
+                best = (score, state, plain_idx, n)
                 if score >= target:
                     if verbose:
                         print(f"[+] Osiagnieto prog czytelnosci, koncze.")
-                    return best
-    return best
+                    break
+        if best[0] >= target:
+            break
+
+    return finalize_best(best)
 
 
 # ---------- Glowny program ----------
@@ -343,8 +410,8 @@ def main():
     if not os.path.exists(cipher_path):
         print(f"Brak pliku kryptotekstu: {cipher_path}"); sys.exit(1)
 
-    alphabet = get_alphabet(lang)
-    alphabet_size = get_alphabet_size(lang)
+    alphabet = ALPHABETS.get(lang, ALPHABETS.get("en", "ABCDEFGHIJKLMNOPQRSTUVXYZ"))
+    alphabet_size = len(alphabet)
 
     with open(cipher_path, "r", encoding="utf-8") as f:
         raw = f.read()
@@ -369,7 +436,7 @@ def main():
         print(f"Klucz N:     odgadywany, kandydaci: {candidate_key_lengths(len(ciphertext), alphabet_size)}")
     print()
 
-    qg = Quadgrams(qg_path)
+    qg = Quadgrams(qg_path, alphabet)
 
     t0 = time.time()
     score, state, plain, n = attack(

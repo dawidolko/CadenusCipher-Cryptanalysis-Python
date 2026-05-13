@@ -56,6 +56,8 @@ Wyobraź sobie kartkę papieru w kratkę:
 5. Czytamy tabelkę wiersz po wierszu — to jest zaszyfrowany tekst.
 
 Deszyfrowanie to dokładnie te same kroki, ale w odwrotną stronę.
+Jeśli długość tekstu nie pasuje do rozmiaru bloku, szyfrowanie dopelnia go
+losowymi literami alfabetu, a deszyfrowanie zgłasza błąd.
 
 **Kluczowy fakt**: rozmiar alfabetu zalezy od jezyka.
 
@@ -86,6 +88,9 @@ robimy **„grę gorąco-zimno”**:
 To się nazywa **hill-climbing** (wspinaczka po wzgórzu) — wyobraź sobie,
 że wchodzisz na górę po ciemku: dotykasz nogą ziemi wokół, idziesz tam
 gdzie wyżej, i tak aż dojdziesz na szczyt.
+
+Dla wydajności fitness liczymy na indeksach liter (tablica quadgramów),
+bez wycinania 4-literowych fragmentów stringa.
 
 **Skąd wiemy że dobry klucz jest dobry?** Bo daje wynik typu
 `PRIDEANDPREJUDICE` zamiast `XYZQVKWPLMQRT`.

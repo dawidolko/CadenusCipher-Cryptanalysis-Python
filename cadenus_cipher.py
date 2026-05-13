@@ -111,16 +111,18 @@ def encrypt(plaintext, key, lang="en"):
     Szyfruje przygotowany juz tekst (same litery alfabetu).
     Tekst musi byc oczyszczony - funkcja niczego nie usuwa.
     Jezeli dlugosc nie jest wielokrotnoscia N*|alfabet|, ostatni blok jest dopelniony
-    literami 'X' (wartosc nie ma duzego znaczenia dla ataku, dopelnienie i
-    tak jest minimalne dla dluzszych tekstow).
+    losowymi literami alfabetu (dopelnienie jest minimalne).
     """
     n = len(key)
     alphabet_size = get_alphabet_size(lang)
     block_size = n * alphabet_size
     pad = (-len(plaintext)) % block_size
     alphabet = get_alphabet(lang)
-    pad_char = 'X' if 'X' in alphabet else alphabet[-1]
-    text = plaintext + pad_char * pad
+    if pad:
+        pad_text = "".join(random.choice(alphabet) for _ in range(pad))
+        text = plaintext + pad_text
+    else:
+        text = plaintext
 
     shifts = _shifts(key, lang=lang)
     order = _key_order(key)
@@ -164,7 +166,7 @@ def decrypt_components(ciphertext, order, shifts, alphabet_size):
     n = len(order)
     block_size = n * alphabet_size
     if len(ciphertext) % block_size != 0:
-        ciphertext = ciphertext[:len(ciphertext) - (len(ciphertext) % block_size)]
+        raise ValueError("Dlugosc kryptotekstu musi byc wielokrotnoscia N*|alfabet|.")
 
     inv_order = [0] * n
     for new_col, old_col in enumerate(order):
@@ -185,6 +187,37 @@ def decrypt_components(ciphertext, order, shifts, alphabet_size):
                 out[b + pr * n + c] = block[base + inv_order[c]]
 
     return "".join(out)
+
+
+def decrypt_indices(cipher_idx, order, shifts, alphabet_size, inv_order=None):
+    """
+    Szybkie deszyfrowanie do listy indeksow liter (bez skladania stringa).
+    Gdy podasz `inv_order`, unikamy ponownego liczenia inwersji permutacji.
+    """
+    if inv_order is None:
+        if order is None:
+            raise ValueError("Brak order dla deszyfrowania indeksow.")
+        n = len(order)
+        inv_order = [0] * n
+        for new_col, old_col in enumerate(order):
+            inv_order[old_col] = new_col
+    else:
+        n = len(inv_order)
+
+    block_size = n * alphabet_size
+    if len(cipher_idx) % block_size != 0:
+        raise ValueError("Dlugosc kryptotekstu musi byc wielokrotnoscia N*|alfabet|.")
+
+    out = [0] * len(cipher_idx)
+    for b in range(0, len(cipher_idx), block_size):
+        block = cipher_idx[b:b + block_size]
+        for r in range(alphabet_size):
+            base = r * n
+            for c in range(n):
+                pr = (r + shifts[c]) % alphabet_size
+                out[b + pr * n + c] = block[base + inv_order[c]]
+
+    return out
 
 
 def decrypt(ciphertext, key, lang="en"):

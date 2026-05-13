@@ -17,20 +17,20 @@ quadgramów języka.
 
 ## 1. Spis plików
 
-| Plik                     | Rola                                                                                                                                                                                             |
-| ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `cadenus_cipher.py`      | Moduł szyfru: `clean_text`, `generate_random_key`, `encrypt`, `decrypt`, `decrypt_components`. **Brak jakiejkolwiek logiki ataku.**                                                              |
-| `cadenus_attack_Olko.py` | Główny program z atakiem. Wczytuje kryptotekst z pliku, drukuje wynik, opcjonalnie zapisuje do pliku. Z modułu szyfru importuje **tylko** `decrypt_components` oraz funkcje dostępu do alfabetu. |
-| `build_ngrams.py`        | Skrypt do **wygenerowania** statystyk quadgramów z korpusów w `corpora/`. Uruchamia się raz; potem wystarczają same pliki `*_quadgrams.txt`.                                                     |
-| `english_quadgrams.txt`  | Statystyki języka angielskiego (~53 tys. quadgramów, korpus ≈ 1,5 mln znaków: _Pride and Prejudice_ + _Moby Dick_).                                                                              |
-| `german_quadgrams.txt`   | Statystyki języka niemieckiego (~40 tys. quadgramów, korpus ≈ 1,2 mln znaków: _Buddenbrooks_).                                                                                                   |
-| `ciphertext_english.txt` | Przykładowy kryptotekst angielski (długość 800, klucz losowy długości 8).                                                                                                                        |
-| `ciphertext_german.txt`  | Przykładowy kryptotekst niemiecki (długość 800, klucz losowy długości 8).                                                                                                                        |
-| `make_sample.py`         | Generator powyższych dwóch przykładów (bierze fragmenty korpusu, szyfruje **losowym** kluczem).                                                                                                  |
-| `solutions.txt`          | Plik weryfikacyjny — prawdziwy klucz i początek tekstu jawnego dla obu przykładów. **Atak go nie czyta** — służy tylko Tobie do sprawdzenia poprawności.                                         |
-| `test_attack.py`         | Program testowy: liczy procent sukcesów i średni czas dla różnych konfiguracji `(N klucza, długość tekstu, liczba restartów)`. Wyniki przykładowe w komentarzu na dole pliku.                    |
-| `corpora/`               | Korpusy źródłowe dla `build_ngrams.py` (Project Gutenberg, public domain). Niepotrzebne do działania ataku — wystarczą same pliki `*_quadgrams.txt`.                                             |
-| `start.sh`, `start.bat`  | Skrypty startowe (Linux/macOS i Windows). Przekazują argumenty bezpośrednio do programu ataku.                                                                                                   |
+| Plik                     | Rola                                                                                                                                                                             |
+| ------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `cadenus_cipher.py`      | Moduł szyfru: `clean_text`, `generate_random_key`, `encrypt`, `decrypt`, `decrypt_components`, `decrypt_indices`. **Brak jakiejkolwiek logiki ataku.**                           |
+| `cadenus_attack_Olko.py` | Główny program z atakiem. Wczytuje kryptotekst z pliku, drukuje wynik, opcjonalnie zapisuje do pliku. Z modułu szyfru importuje **tylko** `decrypt_indices` oraz stałe alfabetu. |
+| `build_ngrams.py`        | Skrypt do **wygenerowania** statystyk quadgramów z korpusów w `corpora/`. Uruchamia się raz; potem wystarczają same pliki `*_quadgrams.txt`.                                     |
+| `english_quadgrams.txt`  | Statystyki języka angielskiego (~53 tys. quadgramów, korpus ≈ 1,5 mln znaków: _Pride and Prejudice_ + _Moby Dick_).                                                              |
+| `german_quadgrams.txt`   | Statystyki języka niemieckiego (~40 tys. quadgramów, korpus ≈ 1,2 mln znaków: _Buddenbrooks_).                                                                                   |
+| `ciphertext_english.txt` | Przykładowy kryptotekst angielski (długość 800, klucz losowy długości 8).                                                                                                        |
+| `ciphertext_german.txt`  | Przykładowy kryptotekst niemiecki (długość 800, klucz losowy długości 8).                                                                                                        |
+| `make_sample.py`         | Generator powyższych dwóch przykładów (bierze fragmenty korpusu, szyfruje **losowym** kluczem).                                                                                  |
+| `solutions.txt`          | Plik weryfikacyjny — prawdziwy klucz i początek tekstu jawnego dla obu przykładów. **Atak go nie czyta** — służy tylko Tobie do sprawdzenia poprawności.                         |
+| `test_attack.py`         | Program testowy: liczy procent sukcesów i średni czas dla różnych konfiguracji `(N klucza, długość tekstu, liczba restartów)`. Wyniki przykładowe w komentarzu na dole pliku.    |
+| `corpora/`               | Korpusy źródłowe dla `build_ngrams.py` (Project Gutenberg, public domain). Niepotrzebne do działania ataku — wystarczą same pliki `*_quadgrams.txt`.                             |
+| `start.sh`, `start.bat`  | Skrypty startowe (Linux/macOS i Windows). Przekazują argumenty bezpośrednio do programu ataku.                                                                                   |
 
 ---
 
@@ -114,8 +114,9 @@ alfabecie pozycję 0..|alfabet|-1.
 
 Tekst dłuższy od jednego bloku jest dzielony na bloki długości `|alfabet| * N`.
 Jeśli długość nie jest wielokrotnością `|alfabet| * N`, ostatni blok jest dopełniony
-literami `X` (lub ostatnią literą alfabetu, gdy `X` nie występuje).
-Deszyfrowanie wykonuje operacje odwrotne w odwrotnej kolejności.
+losowymi literami alfabetu (minimalnie).
+Deszyfrowanie zgłasza błąd, gdy długość kryptotekstu nie pasuje do `|alfabet| * N`.
+W pozostałych przypadkach wykonuje operacje odwrotne w odwrotnej kolejności.
 
 **Reprezentacja klucza w kodzie:** klucz jest matematycznie równoważny parze
 `(order, shifts)`, gdzie:
@@ -151,6 +152,10 @@ każdym restarcie:
    możliwych przesunięć i wybieramy najlepsze; powtarzamy aż brak poprawy).
    To czyni metodę **memetyczną** — ewolucyjne przeszukanie globalne z
    lokalnym dopasowaniem na każdym kroku.
+
+   Dla wydajności fitness jest liczony na indeksach liter, z tablicy quadgramów
+   o rozmiarze `|alfabet|^4` (bez wycinania fragmentów stringa).
+
 2. **Faza 2** — gdy hill-climbing utyka, jeszcze raz dokładnie dostraja
    shifty w 4 przebiegach po `N` kolumnach.
 
@@ -232,7 +237,7 @@ zrobione:
 | Spacje **usuwane** (mimo że mattomatti używa ze spacjami)                                       | `clean_text` zostawia tylko litery                                                                                    |
 | Atak czyta kryptotekst z **pliku tekstowego**, wynik na ekran (i opcjonalnie do pliku)          | `cadenus_attack_Olko.py` — pierwszy argument to ścieżka do pliku, flaga `-o` zapisuje                                 |
 | Komentarz na początku głównego programu (autor, szyfr, metody, długości kluczy, czasy, wnioski) | docstring na początku `cadenus_attack_Olko.py`                                                                        |
-| Atak importuje z modułu szyfru **tylko** funkcję deszyfrowania i (może) stałe                   | importowane: `decrypt_components`, `get_alphabet`, `get_alphabet_size`                                                |
+| Atak importuje z modułu szyfru **tylko** funkcję deszyfrowania i (może) stałe                   | importowane: `decrypt_indices`, `ALPHABETS`                                                                           |
 | Plik statystyk n-gramów + opcjonalny skrypt do jego budowy                                      | `english_quadgrams.txt`, `german_quadgrams.txt` + `build_ngrams.py`                                                   |
 | Dwa przykładowe kryptoteksty: angielski + drugi język                                           | `ciphertext_english.txt`, `ciphertext_german.txt`                                                                     |
 | Drugi język **nie polski**, tekst literacki (nie „lorem ipsum”)                                 | niemiecki, fragment _Buddenbrooks_ Tomasza Manna (z Project Gutenberg)                                                |
@@ -249,6 +254,8 @@ zrobione:
 - Klucz nie jest czyszczony ani modyfikowany w żadnej funkcji szyfru.
 - Język niemiecki używa pełnego alfabetu 30-literowego (A-Z + Ä Ö Ü ß),
   bez redukcji do 25 liter.
+- Szyfrowanie dopelnia brakujaca dlugosc losowymi literami alfabetu,
+  a deszyfrowanie zglasza blad, gdy dlugosc nie pasuje do `|alfabet| * N`.
 - Po zmianie alfabetu niemieckiego należy przebudować statystyki i przykłady:
   `python3 build_ngrams.py` oraz `python3 make_sample.py`.
 
@@ -322,7 +329,7 @@ Prowadzący w treści zadania napisał wprost:
    - kryptotekst > 100 znaków (punkty: 800 w przykładach) (punkt 3);
    - w fitness ngramy dopasowane do alfabetu (punkt 4);
    - tekst jawny to literacki angielski/niemiecki (punkt 5);
-   - atak korzysta tylko z `decrypt_components` i stałych z modułu szyfru —
+   - atak korzysta tylko z `decrypt_indices` i stałych z modułu szyfru —
      **żadnej wiedzy o prawdziwym kluczu**.
 
 6. **Czego brakuje do oceny 5.0** — algorytm analityczny (np. dopasowanie
@@ -336,3 +343,25 @@ Prowadzący w treści zadania napisał wprost:
 ## 11. Licencja
 
 MIT — patrz plik [`LICENSE`](LICENSE).
+
+---
+
+## 12. Szybkie komendy testowe (5 linii)
+
+Poniższe linie możesz wkleić do konsoli po kolei, żeby szybko sprawdzić, czy wszystko działa.
+
+```bash
+python3 cadenus_cipher.py
+python3 cadenus_attack_Olko.py ciphertext_english.txt -l en -k 8 -r 2
+python3 cadenus_attack_Olko.py ciphertext_german.txt -l de -k 8 -r 2
+python3 make_sample.py
+python3 cadenus_attack_Olko.py ciphertext_english.txt -l en -k 8 -r 6 -o wynik.txt
+```
+
+Co robią te komendy:
+
+1. **Self-test szyfru** — szyfruje i deszyfruje krótki tekst; na końcu powinno być `OK`.
+2. **Szybki atak (EN)** — krótki test ataku na gotowym angielskim kryptotekście (2 restarty).
+3. **Szybki atak (DE)** — to samo dla niemieckiego kryptotekstu (2 restarty).
+4. **Nowe próbki** — generuje świeże `ciphertext_*.txt` i `solutions.txt` (nadpisuje pliki).
+5. **Dłuższy atak + zapis** — więcej restartów i zapis wyniku do `wynik.txt`.

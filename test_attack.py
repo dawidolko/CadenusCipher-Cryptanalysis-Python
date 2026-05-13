@@ -15,7 +15,7 @@ import os
 import random
 import time
 
-from cadenus_cipher import clean_text, encrypt, generate_random_key, get_alphabet_size
+from cadenus_cipher import clean_text, encrypt, generate_random_key, get_alphabet, get_alphabet_size
 from cadenus_attack_Olko import Quadgrams, attack
 
 
@@ -39,7 +39,7 @@ def is_success(plain_attack, plain_true, threshold=0.9):
 
 def run_tests(corpus_path, qg_path, lang_label, configs, trials=10, lang="en"):
     print(f"\n=== {lang_label}  (corpus: {corpus_path}) ===")
-    qg = Quadgrams(qg_path)
+    qg = Quadgrams(qg_path, get_alphabet(lang))
     base_text = load_corpus(corpus_path, 2000, lang=lang)
     alphabet_size = get_alphabet_size(lang)
 
